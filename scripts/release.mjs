@@ -40,6 +40,7 @@ import {
 import { verifyUpdaterSignature } from './lib/updater-signature.mjs';
 import { buildLatestShip, scrubPublicText } from './lib/public-release.mjs';
 import { resolveReleaseChannel } from './lib/release-channel.mjs';
+import { formatReleaseSummary, prepareReleaseSummary } from './lib/release-summary.mjs';
 
 const REPO = 'hurttlocker/o8';
 const PUBLIC_MIRROR = 'hurttlocker/o8-releases';
@@ -117,6 +118,7 @@ try {
 const tag = releaseChannel.tag;
 const dryRun = process.argv.includes('--dry-run');
 const dryRunOutDir = optionValue('--out-dir') || join(tmpdir(), 'o8-public-release-out');
+let releaseSummary = null;
 
 // The authoring toolchain stays pinned to Node 22 via package.json + .nvmrc.
 // Runtime ABI compatibility is independent of this guard: tauri-export now
@@ -385,6 +387,17 @@ if (releaseExists && process.env.O8_RELEASE_CLOBBER !== '1') {
   process.exit(1);
 }
 
+let mirrorNotes = `o8 ${tag} is published. See the release history for details.`;
+try {
+  const notesPath = join(root, 'release-notes', 'next.md');
+  releaseSummary = prepareReleaseSummary(buildLatestShip({ version, tag, publishedAt: new Date().toISOString(),
+    releaseUrl: `https://github.com/${REPO}/releases/tag/${tag}`, commits: releaseCommits(),
+    notesMarkdown: existsSync(notesPath) ? readFileSync(notesPath, 'utf8') : '' }));
+  mirrorNotes = formatReleaseSummary(releaseSummary);
+  console.log(`[release] public summary ${releaseSummary.status}${releaseSummary.cached ? ' (cached)' : ''}`);
+} catch { console.warn('[release] Public summary preparation unavailable; publishing the release fallback.'); }
+if (gateReleaseNote) mirrorNotes += `\n\n${gateReleaseNote}`;
+
 if (releaseExists) {
   console.log(`[release] ${tag} already exists — replacing assets (O8_RELEASE_CLOBBER=1)`);
   execFileSync('gh', [
@@ -417,10 +430,6 @@ console.log(`[release] published ${tag}`);
 // of truth for code + full release notes; PUBLIC_MIRROR only carries the
 // updater payload. Failures here are logged but non-fatal — the private
 // publish above already succeeded.
-const mirrorNotes = gateReleaseNote
-  ? `Auto-update artifacts for o8 ${tag}. See https://github.com/${REPO}/releases/tag/${tag} for details.\n\n${gateReleaseNote}`
-  : `Auto-update artifacts for o8 ${tag}. See https://github.com/${REPO}/releases/tag/${tag} for details.`;
-
 try {
   let mirrorExists = false;
   try {
@@ -635,6 +644,7 @@ function publishPublicRelease({ publishedAt, dryRun: preview = false, outDir = n
     notesMarkdown,
     credits: releaseCredits(),
   });
+  if (releaseSummary) latestShip.summary = releaseSummary.summary;
   const stagingDir = mkdtempSync(join(tmpdir(), 'o8-latest-ship-'));
   const latestShipPath = join(stagingDir, 'latest-ship.json');
 
