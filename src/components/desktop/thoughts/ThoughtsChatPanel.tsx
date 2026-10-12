@@ -1514,7 +1514,7 @@ export const ThoughtsChatPanel = forwardRef<ThoughtsChatPanelHandle, {
         localModel: contextualConversation ? orchestratorModel : undefined,
         backendSourceRef, setBackend: setOrchestratorBackend,
         setModel: setOrchestratorModel, setOperatorDefaults,
-      }, signal),
+      }, signal, options),
     });
   }, [addAttachedImage, backendSwitch, ensureSelectedRepoPersisted, orchStream, orchestratorBackend, orchestratorModel, resolvedRepoPath, setOrchestratorModel, contextualConversation]);
 

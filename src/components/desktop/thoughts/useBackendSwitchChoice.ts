@@ -1,3 +1,4 @@
+import { resolveBackendTurnModel } from '@/lib/orchestrator/turn-model-selection';
 import { useCallback, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { formatModelLabel } from '@/lib/format';
 import type { OrchestratorBackendId } from '@/lib/lane/orchestrator-backends/types';
@@ -31,15 +32,17 @@ export async function resolveFreshComposerTurnOptions(input: {
   setBackend: Dispatch<SetStateAction<OrchestratorBackendSetting>>;
   setModel: Dispatch<SetStateAction<string>>;
   setOperatorDefaults: Dispatch<SetStateAction<ThoughtsOperatorDefaults>>;
-}, signal?: AbortSignal) {
+}, signal?: AbortSignal, mode: { collide?: boolean; orchestrationMode?: string } = {}) {
+  const effectiveBackend = (backend: OrchestratorBackendSetting) =>
+    mode.collide === true && mode.orchestrationMode !== 'single' ? 'collide' : backend;
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-  if (input.localModel !== undefined) return { model: input.localModel, backend: composerBackendTurnOverride(input.backend) };
+  if (input.localModel !== undefined) return { model: resolveBackendTurnModel(effectiveBackend(input.backend), input.localModel)!, backend: composerBackendTurnOverride(input.backend) };
   const defaults = await fetchFreshThoughtsOperatorDefaults(signal);
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-  const model = readStoredOrchestratorModel(input.repoPath) ?? defaults.orchestratorModel;
   const backend = input.backendSourceRef.current === 'default'
     ? resolveActiveComposerBackend(defaults)
     : input.backend;
+  const model = resolveBackendTurnModel(effectiveBackend(backend), readStoredOrchestratorModel(input.repoPath) ?? defaults.orchestratorModel)!;
   input.setOperatorDefaults(defaults);
   input.setModel(model);
   if (input.backendSourceRef.current === 'default') input.setBackend(backend);

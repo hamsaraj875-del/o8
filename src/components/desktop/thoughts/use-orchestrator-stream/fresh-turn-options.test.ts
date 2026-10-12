@@ -57,6 +57,7 @@ let releaseFreshFetch: (() => void) | null = null;
 let historyResponse: Record<string, unknown> | null = null;
 let useRealHistoryRoute = false;
 let historyPatchGate: Promise<void> | null = null;
+let historyPostGate: Promise<void> | null = null;
 let runtimeInventoryAgents: Array<{ sessionKey: string; runtime: string; status: string; workspace: string }> = [];
 
 interface ComposerTestWindow extends Window {
@@ -92,7 +93,7 @@ async function releaseAndSettleFreshFetch() {
   });
 }
 
-async function persistDefaults(orchestratorModel: string, orchestratorBackend: 'claude' | 'codex') {
+async function persistDefaults(orchestratorModel: string, orchestratorBackend: 'claude' | 'codex' | 'o8') {
   const response = await POST(new Request('http://127.0.0.1/api/panel/operator-defaults', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -221,7 +222,10 @@ beforeEach(async () => {
         if (historyPatchGate) await historyPatchGate;
         return PATCH_CHAT(request);
       }
-      if (init?.method === 'POST') return POST_CHAT(request);
+      if (init?.method === 'POST') {
+        if (historyPostGate) await historyPostGate;
+        return POST_CHAT(request);
+      }
       return GET_CHAT(request);
     }
     return new Response('{}', { headers: { 'Content-Type': 'application/json' } });
@@ -233,6 +237,7 @@ beforeEach(async () => {
   historyResponse = null;
   useRealHistoryRoute = false;
   historyPatchGate = null;
+  historyPostGate = null;
   runtimeInventoryAgents = [];
   host = document.createElement('div');
   document.body.append(host);
@@ -316,6 +321,10 @@ describe('composer fresh operator defaults at the send seam', () => {
     useRealHistoryRoute = true;
     let releasePatch: () => void = () => {};
     historyPatchGate = new Promise<void>((resolve) => { releasePatch = resolve; });
+    // Keep the debounced transcript POST distinct from the repository PATCH
+    // notification, even when the machine takes longer than the debounce.
+    let releasePost: () => void = () => {};
+    historyPostGate = new Promise<void>((resolve) => { releasePost = resolve; });
     const historyUpdates: string[] = [];
     const onHistoryUpdate = (event: Event) => {
       historyUpdates.push((event as CustomEvent<{ threadId: string }>).detail.threadId);
@@ -378,6 +387,7 @@ describe('composer fresh operator defaults at the send seam', () => {
         await waitForPayload(1);
       });
       expect(historyUpdates).toEqual([tabId]);
+      releasePost();
       expect(sentTurnPayloads()[0]?.threadId).toBe(tabId);
       expect(sentTurnPayloads()[0]?.repoPath).toBe(newRepo);
       await act(async () => { await new Promise((resolve) => setTimeout(resolve, 950)); });
@@ -390,7 +400,9 @@ describe('composer fresh operator defaults at the send seam', () => {
       expect(host.querySelector('button[aria-label^="Project target"]')).toBeNull();
     } finally {
       releasePatch();
+      releasePost();
       historyPatchGate = null;
+      historyPostGate = null;
       window.removeEventListener('o8:chat-history-updated', onHistoryUpdate);
       await DELETE_CHAT(new NextRequest(`http://127.0.0.1/api/v2/chat-history?tabId=${tabId}`));
     }
@@ -508,6 +520,34 @@ describe('composer fresh operator defaults at the send seam', () => {
     expect(payload.message).toContain('[Mode: Fusion]');
     expect(localStorage.getItem(composerModeStorageKey(composerModeStorageId))).toBe('fusion');
     expect(localStorage.getItem(legacySwarmStorageKey(composerModeStorageId))).toBe('0');
+  });
+
+  it('sends a new o8 workspace turn with its own model despite a stale provider model pin', async () => {
+    await act(async () => root.unmount()); root = createRoot(host);
+    invalidateOperatorDefaultsValuesSnapshot();
+    await persistDefaults('claude-opus-5', 'o8');
+    writeStoredOrchestratorModel(repoPath, 'claude-opus-5');
+    const panelRef = createRef<ThoughtsChatPanelHandle>();
+    await act(async () => {
+      root.render(createElement(ThoughtsChatPanel, {
+        ref: panelRef, open: true, agents: [],
+        missionState: { version: 2, prompt: '', summary: '', packets: [], updatedAt: new Date(0).toISOString() },
+        preferredRuntime: 'codex', sessionTargets: [], workspaceTargets: [], repoPath,
+        initialMode: 'fleet', lockedMode: 'fleet', suppressAutoRestore: true, suppressRuntimePrewarm: true,
+        thoughtsBodyBackground: 'transparent', thoughtsElevatedSurface: 'transparent', thoughtsElevatedBorder: 'none',
+        thoughtsElevatedShadow: 'none', thoughtsMutedGlass: 'transparent', onMissionStateChange: () => {}, onChromeChange: () => {},
+      }));
+      await new Promise(resolve => setTimeout(resolve, 50));
+    });
+    let payload: Record<string, unknown> = {};
+    await act(async () => {
+      expect(panelRef.current?.sendNow('Help me draft a reply.')).toBe(true);
+      payload = await waitForPayload(1);
+    });
+    expect(payload).toMatchObject({ backend: 'o8', model: 'o8-free', displayMessage: 'Help me draft a reply.' });
+    expect(readStoredOrchestratorModel(repoPath)).toBe('claude-opus-5');
+    const defaults = await GET(new Request('http://127.0.0.1/api/panel/operator-defaults'));
+    expect((await defaults.json()).values).toMatchObject({ orchestratorBackend: 'o8', orchestratorModel: 'claude-opus-5' });
   });
 
   it('sends a new reply through managed inference without inheriting or overwriting the workspace model', async () => {
