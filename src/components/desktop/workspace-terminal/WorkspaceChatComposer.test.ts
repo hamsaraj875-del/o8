@@ -49,3 +49,16 @@ it('does not start a message after the composer is dismissed during upload', asy
   await act(async () => finish(new Response(JSON.stringify({ ok: true, relPath: 'o8-assets/image.png' }))));
   expect(chat.sendText).not.toHaveBeenCalled(); expect(chat.setDraft).not.toHaveBeenCalled(); expect(attachments.consumeAttachedImages).not.toHaveBeenCalled();
 });
+it('uploads into the new repository when a retained image is retried after retargeting', async () => {
+  vi.mocked(chat.sendText).mockResolvedValue('failed'); await render(); await submit();
+  repoPath = '/fixture/second'; await render(); vi.mocked(chat.sendText).mockResolvedValue('accepted'); await submit();
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(fetch).mock.calls[1][0]).toContain(encodeURIComponent('/fixture/second'));
+});
+it('ignores a late upload from the old repository and prepares the new repository on retry', async () => {
+  let finish!: (response: Response) => void; vi.mocked(fetch).mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+  await render(); await submit(); repoPath = '/fixture/retarget'; await render();
+  await act(async () => finish(new Response(JSON.stringify({ ok: true, relPath: 'o8-assets/old.png' }))));
+  expect(chat.sendText).not.toHaveBeenCalled(); await submit();
+  expect(fetch).toHaveBeenCalledTimes(2); expect(vi.mocked(fetch).mock.calls[1][0]).toContain(encodeURIComponent('/fixture/retarget'));
+});

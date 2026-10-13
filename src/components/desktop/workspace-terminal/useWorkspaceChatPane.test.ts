@@ -12,11 +12,12 @@ import { useWorkspaceChatPane } from './useWorkspaceChatPane';
 import { resetWorkspaceChatDraftStatesForTests } from './workspace-chat-drafts';
 import { resetWorkspaceSteerQueueForTests } from './workspace-chat-queue';
 import type { TerminalTab } from './types';
-let root: Root; let host: HTMLDivElement; let chat: ReturnType<typeof useWorkspaceChatPane>;
-const tab = { id: 'fixture', kind: 'chat', chatRuntime: 'muse', chatSessionKey: 'muse-owned:fixture', repo: { localPath: '/fixture' }, chatMessages: [] } as unknown as TerminalTab;
-function Harness() { const current = useWorkspaceChatPane({ tab, active: false, onUpdateMessages: vi.fn(), onUpdateSessionKey: vi.fn(), onSelectModel: vi.fn(), onConsumeDraftInjection: vi.fn() }); useEffect(() => { chat = current; }, [current]); return createElement('div', null, current.draft); }
+let root: Root; let host: HTMLDivElement; let chat: ReturnType<typeof useWorkspaceChatPane>; let active = false;
+let tab: TerminalTab;
+function Harness() { const current = useWorkspaceChatPane({ tab, active, onUpdateMessages: vi.fn(), onUpdateSessionKey: vi.fn(), onSelectModel: vi.fn(), onConsumeDraftInjection: vi.fn() }); useEffect(() => { chat = current; }, [current]); return createElement('div', null, current.draft); }
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); fixtures.bootstrap.mockReset().mockResolvedValue(undefined);
+  active = false; tab = { id: 'fixture', kind: 'chat', chatRuntime: 'muse', chatSessionKey: 'muse-owned:fixture', repo: { localPath: '/fixture' }, chatMessages: [] } as unknown as TerminalTab;
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.startsWith('/api/runtime/inventory')
     ? { agents: [{ sessionKey: tab.chatSessionKey, runtimeSurface: { capabilities: { sendInput: true } } }] }
@@ -45,4 +46,39 @@ it('does not send two commands while readiness is pending', async () => {
   await expect(second).resolves.toBe('failed');
   await act(async () => { release(new Response(JSON.stringify({ agents: [{ sessionKey: tab.chatSessionKey, runtimeSurface: { capabilities: { sendInput: true } } }] }))); await first; });
   expect(vi.mocked(fetch).mock.calls.filter(call => call[0] === '/api/runtime/action')).toHaveLength(1);
+});
+it('holds the actual unknown 409 action receipt rather than treating it as a rejected command', async () => {
+  await act(async () => root.render(createElement(Harness)));
+  vi.mocked(fetch).mockImplementation(async url => new Response(JSON.stringify(String(url).includes('inventory')
+    ? { agents: [{ sessionKey: tab.chatSessionKey, runtimeSurface: { capabilities: { sendInput: true } } }] }
+    : { ok: false, outcomeUnknown: true, status: 'unavailable' }), { status: String(url).includes('inventory') ? 200 : 409 }));
+  let outcome: string | undefined; await act(async () => { outcome = await chat.sendText('unknown execution'); });
+  expect(outcome).toBe('unconfirmed');
+});
+it('preserves queued mutation identity and blocks Resume after an unknown action receipt', async () => {
+  let ready = false;
+  vi.mocked(fetch).mockImplementation(async url => new Response(JSON.stringify(String(url).includes('inventory')
+    ? { agents: [{ sessionKey: tab.chatSessionKey, runtimeSurface: { capabilities: { sendInput: ready } } }] }
+    : { ok: false, outcomeUnknown: true, status: 'unavailable' }), { status: String(url).includes('inventory') ? 200 : 409 }));
+  await act(async () => root.render(createElement(Harness)));
+  await act(async () => { expect(await chat.sendText('queued unknown')).toBe('queued'); });
+  const id = chat.pendingSteers[0].mutationId; ready = true; active = true;
+  await act(async () => root.render(createElement(Harness)));
+  expect(chat.pendingSteers[0].status).toBe('unconfirmed'); expect(chat.pendingSteers[0].mutationId).toBe(id);
+  await act(async () => chat.resumeQueue());
+  expect(vi.mocked(fetch).mock.calls.filter(call => call[0] === '/api/runtime/action')).toHaveLength(1);
+});
+it('preserves an unsent intent when HTTP 200 carries a proven CLI spawn rejection', async () => {
+  active = true; tab = { ...tab, chatRuntime: 'codex', chatSessionKey: 'codex-discovered:fixture' };
+  vi.mocked(fetch).mockResolvedValue(new Response('data: {"type":"error","delivery":"rejected","text":"spawn failed"}\n\n', { headers: { 'content-type': 'text/event-stream' } }));
+  await act(async () => root.render(createElement(Harness)));
+  let outcome: string | undefined; await act(async () => { outcome = await chat.sendText('not executed'); });
+  expect(outcome).toBe('failed');
+});
+it('holds an empty stream and accepts positive runtime output', async () => {
+  active = true; tab = { ...tab, chatRuntime: 'codex', chatSessionKey: 'codex-discovered:fixture' };
+  vi.mocked(fetch).mockResolvedValueOnce(new Response('')).mockResolvedValue(new Response('data: {"type":"delta","text":"received"}\n\n'));
+  await act(async () => root.render(createElement(Harness)));
+  await act(async () => { expect(await chat.sendText('unknown')).toBe('unconfirmed'); });
+  await act(async () => { expect(await chat.sendText('acknowledged')).toBe('accepted'); });
 });

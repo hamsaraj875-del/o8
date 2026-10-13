@@ -8,12 +8,14 @@ import { useWorkspaceChatModelOptions } from '@/components/desktop/workspace-ter
 import {
   fetchOwnedRuntimeSteerReceipt,
   shouldHoldOwnedRuntimeSteer,
+  OwnedRuntimeSteerUnconfirmedError,
 } from '@/components/desktop/workspace-terminal/owned-runtime-steer';
 import {
   buildClaudePermissionDecisionMessage,
   coerceClaudeCodeChatEvent,
   mergeClaudeCodeChatEvent,
   workspaceUsageTokens,
+  workspaceStreamDelivery,
   type ClaudePermissionDecision,
   type WorkspaceUsageTokens,
   type WorkspaceStreamEvent,
@@ -243,6 +245,7 @@ export function useWorkspaceChatPane({
     let ownedDeliveryAccepted = false;
     let ownedDeliveryUnsettled = false;
     let streamAccepted = false;
+    let streamRejected = false;
     let requestStarted = false;
 
     try {
@@ -256,6 +259,7 @@ export function useWorkspaceChatPane({
           composedMessage,
           options?.queuedIntent?.mutationId,
         );
+        if (payload?.outcomeUnknown) throw new OwnedRuntimeSteerUnconfirmedError();
         if (shouldHoldOwnedRuntimeSteer(res.ok, payload)) {
           setOwnedSessionReady(false);
           return options?.queuedIntent || queuePendingSteer(text) ? 'queued' : 'failed';
@@ -333,7 +337,6 @@ export function useWorkspaceChatPane({
         );
         return res.ok ? 'unconfirmed' : 'failed';
       }
-      streamAccepted = true;
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -417,6 +420,9 @@ export function useWorkspaceChatPane({
           if (!line.startsWith('data: ')) continue;
           try {
             const event = JSON.parse(line.slice(6)) as WorkspaceStreamEvent;
+            const delivery = workspaceStreamDelivery(event);
+            if (delivery === 'accepted') streamAccepted = true;
+            if (delivery === 'rejected' && !streamAccepted) streamRejected = true;
             const claudeCodeEvent = coerceClaudeCodeChatEvent(event);
             if (claudeCodeEvent) {
               claudeCodeEvents = mergeClaudeCodeChatEvent(claudeCodeEvents, claudeCodeEvent);
@@ -581,7 +587,7 @@ export function useWorkspaceChatPane({
               updateAssistantEntry();
             }
           } catch {
-            return 'accepted';
+            return streamAccepted ? 'accepted' : 'unconfirmed';
           }
         }
       }
@@ -654,7 +660,7 @@ export function useWorkspaceChatPane({
         transcriptStore.setStatus(normalizedSessionKey, 'loading');
       }
     }
-    return 'accepted';
+    return streamAccepted ? 'accepted' : streamRejected ? 'failed' : 'unconfirmed';
   }, [chatRuntime, claudeBypassPermissions, claudePlanMode, commitMessages, isOwnedRuntimeBound, linkedIssue, normalizedSessionKey, onUpdateSessionKey, queuePendingSteer, refreshOwnedSessionReady, runtimeLabel, scrollToBottom, selectedModel, sending, setShowScrollToBottom, stickToBottomRef, streamRequest, tab.claudeSessionId, tab.repo?.localPath, tabId, transportSessionId]);
 
   queuedSteerSendNowRef.current = (item) => sendText(item.text, { queuedIntent: item });

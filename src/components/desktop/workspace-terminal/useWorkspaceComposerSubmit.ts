@@ -5,7 +5,7 @@ import type { useThoughtsComposerAttachments, ThoughtsAttachedImage } from '@/co
 export function useWorkspaceComposerSubmit(chat: ReturnType<typeof useWorkspaceChatPane>, attachments: ReturnType<typeof useThoughtsComposerAttachments>, repoPath?: string, enabled = true) {
   const busy = useRef(false);
   const upload = useRef<AbortController | null>(null);
-  const uploads = useRef(new WeakMap<ThoughtsAttachedImage, string>());
+  const uploads = useRef(new WeakMap<ThoughtsAttachedImage, { repoPath: string; path: string }>());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => () => upload.current?.abort(), [repoPath, chat.tabId, chat.normalizedSessionKey, enabled]);
@@ -22,15 +22,17 @@ export function useWorkspaceComposerSubmit(chat: ReturnType<typeof useWorkspaceC
         if (images.length && !repoPath) throw new Error('Choose a repository before sending images. Your draft and attachments are still here.');
         const refs: string[] = [];
         for (const image of images) {
-          let path = uploads.current.get(image);
+          const cached = uploads.current.get(image);
+          let path = cached?.repoPath === repoPath ? cached.path : undefined;
           if (!path) {
             const response = await fetch(`/api/repo-spec/asset?repoPath=${encodeURIComponent(repoPath!)}`, {
               method: 'POST', signal: controller.signal, headers: { 'Content-Type': image.mimeType, 'x-filename': encodeURIComponent(image.name) },
               body: dataUriToBlob(image.dataUri, image.mimeType),
             });
             const value = await response.json().catch(() => null) as { ok?: boolean; relPath?: string } | null;
+            if (controller.signal.aborted) return;
             if (!response.ok || !value?.ok || !value.relPath) throw new Error('An image could not upload. Your draft and attachments are still here. Retry when connected.');
-            path = value.relPath; uploads.current.set(image, path);
+            path = value.relPath; uploads.current.set(image, { repoPath: repoPath!, path });
           }
           refs.push(`![${image.name.replace(/[\[\]\n\r]/g, '')}](${path})`);
         }

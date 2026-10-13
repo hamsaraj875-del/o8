@@ -18,6 +18,7 @@ import { useThoughtsComposerAttachments } from '@/components/desktop/thoughts/ch
 import { PendingSteerCard } from '@/components/desktop/thoughts/chat-panel/PendingSteerCard';
 import { InputButtons } from '@/components/desktop/thoughts/InputButtons';
 import { useWorkspaceComposerSubmit } from './useWorkspaceComposerSubmit';
+import { isOrchestratorBackendSetting } from '@/lib/operator/backend-setting';
 import { useAgentVoiceMode } from '@/components/desktop/thoughts/chat-panel/useAgentVoiceMode';
 
 type ChatPaneState = ReturnType<typeof useWorkspaceChatPane>;
@@ -58,6 +59,8 @@ function WorkspaceChatComposerBase({
   const modelLabel = chat.selectedModel?.label
     ? `${chat.runtimeLabel} ${chat.selectedModel.label}`
     : chat.runtimeLabel;
+  const backend = chat.chatRuntime === 'claude-code' ? 'claude' : chat.chatRuntime === 'pi' ? 'o8'
+    : isOrchestratorBackendSetting(chat.chatRuntime) ? chat.chatRuntime : undefined;
 
   // InputButtons leans on the orchestrator's enhance/undo flow. The
   // Codex composer doesn't surface enhance today — stub the callbacks
@@ -123,11 +126,11 @@ function WorkspaceChatComposerBase({
           outlineOffset: -2,
         }}
       >
-        {submitError ? <div role="alert" style={{ padding: '10px 14px', fontSize: 12, color: 'var(--t-text-secondary)' }}>{submitError}</div> : null}
-        {chat.retentionWarning ? <div role="status" style={{ padding: '10px 14px', fontSize: 12, color: 'var(--t-text-secondary)' }}>{chat.retentionWarning}</div> : null}
-        {chat.queueNotice ? <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '10px 14px', fontSize: 12, color: 'var(--t-text-secondary)' }}>
+        {submitError ? <div role="alert" style={{ paddingTop: 10, paddingBottom: 10, paddingLeft: 14, paddingRight: 14, fontSize: 12, color: 'var(--t-text-secondary)' }}>{submitError}</div> : null}
+        {chat.retentionWarning ? <div role="status" style={{ paddingTop: 10, paddingBottom: 10, paddingLeft: 14, paddingRight: 14, fontSize: 12, color: 'var(--t-text-secondary)' }}>{chat.retentionWarning}</div> : null}
+        {chat.queueNotice ? <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingTop: 10, paddingBottom: 10, paddingLeft: 14, paddingRight: 14, fontSize: 12, color: 'var(--t-text-secondary)' }}>
           <span style={{ flex: 1, minWidth: 140 }}>{chat.queueNotice}</span>
-          {chat.queuePaused && !chat.pendingSteers.some(item => item.status === 'unconfirmed') ? <button type="button" onClick={chat.resumeQueue} style={{ padding: '5px 8px', borderRadius: 7, border: '1px solid var(--t-border)', background: 'var(--t-input-bg)', color: 'var(--t-text)', cursor: 'pointer' }}>Resume queue</button> : null}
+          {chat.queuePaused && !chat.pendingSteers.some(item => item.status === 'unconfirmed') ? <button type="button" onClick={chat.resumeQueue} style={{ paddingTop: 5, paddingBottom: 5, paddingLeft: 8, paddingRight: 8, borderRadius: 7, border: '1px solid var(--t-border)', background: 'var(--t-input-bg)', color: 'var(--t-text)', cursor: 'pointer' }}>Resume queue</button> : null}
         </div> : null}
         {chat.pendingSteers.length > 0 ? (
           <PendingSteerCard
@@ -383,6 +386,7 @@ function WorkspaceChatComposerBase({
           onUndoEnhance={noop}
           onSubmit={handleSubmit}
           modelLabel={modelLabel}
+          activeBackend={backend}
           repoLabel={tab.repo?.name || tab.repo?.localPath?.split('/').pop() || null}
           repoPath={tab.repo?.localPath ?? null}
           displayMessagesCount={chat.messages.length}
