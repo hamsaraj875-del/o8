@@ -284,7 +284,7 @@ export class AcpClient {
       this.pending.delete(msg.id);
       clearTimeout(entry.timeout);
       const res = msg as unknown as JsonRpcResponse;
-      if (res.error) entry.reject(new Error(`ACP error ${res.error.code}: ${res.error.message}`));
+      if (res.error) entry.reject(new AcpRequestError(res.error.code, `ACP error ${res.error.code}: ${res.error.message}`, res.error.data));
       else entry.resolve(res.result);
       return;
     }
@@ -423,8 +423,7 @@ export class AcpClient {
         value: modelId,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!message.includes('ACP error -32601') && !message.includes('Method not found')) throw err;
+      if (!(err instanceof AcpRequestError) || err.code !== -32601) throw err;
       await this.request('session/set_model', { sessionId, modelId });
     }
   }

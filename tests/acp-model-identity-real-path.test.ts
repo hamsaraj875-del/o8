@@ -15,8 +15,9 @@ if(q.method==='session/new')return reply({sessionId:sid,configOptions:[{id:'cust
 if(q.method==='session/set_config_option'||q.method==='session/set_model'){
  if(q.method==='session/set_config_option'&&q.params.configId!=='custom-model')return send({jsonrpc:'2.0',id:q.id,error:{code:-32602,message:'wrong model axis'}});
  const pick=q.params.value||q.params.modelId;
+ if(pick==='method-refused'&&q.method==='session/set_config_option')return send({jsonrpc:'2.0',id:q.id,error:{code:-32000,message:'Method not found for this model'}});
  if(pick==='refused')return send({jsonrpc:'2.0',id:q.id,error:{code:-32000,message:'fixture model refusal'}});
- model=pick;if(pick==='delayed')text(sid,'model-selection-started');return setTimeout(()=>reply({}),pick==='delayed'?150:0);
+ model=pick;if(pick==='delayed')text(sid,'model-selection-started');return setTimeout(()=>reply({}),pick==='unconfirmed'?900:pick==='delayed'?150:0);
 }
 if(q.method==='session/prompt'){
  const value=q.params.prompt[0].text;text('foreign-child','wrong session');text(sid,model+':'+value);
@@ -33,10 +34,23 @@ describe('ACP model and session identity', () => {
     const rejected = await turn('model-refusal', 'refused');
     expect(rejected.at(-1)?.type).toBe('error'); expect(rejected.some(event => event.type === 'text' || event.type === 'turn_receipt')).toBe(false);
     expect(backend.peekSession(process.cwd(), undefined, 'model-refusal')?.status).toBe('ready');
+    const wordingRefusal = await turn('model-refusal', 'method-refused');
+    expect(wordingRefusal.some(event => event.type === 'text' || event.type === 'turn_receipt')).toBe(false);
     const next = await turn('model-refusal');
     expect(next).toContainEqual({ type: 'text', text: 'initial:hello' });
     expect(next.some(event => event.type === 'text' && event.text === 'wrong session')).toBe(false);
     expect((await turn('model-refusal', undefined, 'unknown')).at(-1)?.type).toBe('error');
+  });
+  it('holds an unconfirmed model switch until an explicit selection is acknowledged', async () => {
+    const slow = makeAcpBackend({ id: 'acp', label: 'Slow fixture', requestTimeoutMs: 500, resolveLaunch: () => ({ command: process.execPath, args: ['-e', peer] }) });
+    const send = async (model?: string) => { const events: OrchestratorEvent[] = []; await slow.sendTurn(process.cwd(), 'hello', event => events.push(event), { threadId: 'unconfirmed-model', model }); return events; };
+    await send();
+    const unknown = await send('unconfirmed');
+    expect(unknown.some(event => event.type === 'turn_receipt' || event.type === 'text')).toBe(false);
+    expect(unknown.at(-1)).toMatchObject({ type: 'error', error: expect.stringContaining('could not confirm') });
+    expect((await send()).some(event => event.type === 'turn_receipt' || event.type === 'text')).toBe(false);
+    expect(slow.peekSession(process.cwd(), undefined, 'unconfirmed-model')?.status).toBe('ready');
+    expect(await send('')).toContainEqual({ type: 'text', text: 'initial:hello' });
   });
   it('does not start a prompt when cancellation arrives during model selection', async () => {
     const signal = new AbortController();
