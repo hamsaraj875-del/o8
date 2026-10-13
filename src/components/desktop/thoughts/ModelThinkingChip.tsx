@@ -139,9 +139,10 @@ export interface ComposerModelCatalogue {
   carrier: { source: 'native' | 'openrouter' | 'codex-subscription'; model: string | null } | null;
 }
 
-export function useComposerModelCatalogue(): ComposerModelCatalogue {
+export function useComposerModelCatalogue(enabled = true): ComposerModelCatalogue {
   const [carrier, setCarrier] = useState<ComposerModelCatalogue['carrier']>(null);
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     const load = () => {
       void fetch('/api/runtime/claude-code-profile', { cache: 'no-store' })
@@ -158,7 +159,7 @@ export function useComposerModelCatalogue(): ComposerModelCatalogue {
     load();
     window.addEventListener(CLAUDE_CODE_PROFILE_CHANGED_EVENT, load);
     return () => { cancelled = true; window.removeEventListener(CLAUDE_CODE_PROFILE_CHANGED_EVENT, load); };
-  }, []);
+  }, [enabled]);
   const carrierModel = carrier?.model ?? null;
   const carrierSource = carrier?.source;
   const groups = carrierSource && carrierSource !== 'native' && carrierModel
@@ -387,7 +388,7 @@ export function ModelThinkingChip({
   };
   const leadReady = (key: ComposerModelGroup['key']) => key === 'o8' || (key === 'acp' && acpAvailable)
     || tools.inventory?.some((item) => item.id === runtimeForLead(key) && item.available) === true;
-  const { groups: composerModelGroups, carrier: harnessCarrier } = useComposerModelCatalogue();
+  const { groups: composerModelGroups, carrier: harnessCarrier } = useComposerModelCatalogue(Boolean(onEffortChange || onModelChange || onBackendChange));
   const ultraEnabled = useUltraEffortPreference();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const splitRef = useRef<HTMLSpanElement>(null);
