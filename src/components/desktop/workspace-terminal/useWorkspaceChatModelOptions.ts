@@ -46,7 +46,7 @@ export function useWorkspaceChatModelOptions(
     [chatRuntime, openCodeProviders],
   );
   const selectedModel = useMemo(
-    () => availableModels.find((model) => model.id === selectedModelId) ?? (selectedModelId ? { id: selectedModelId, label: selectedModelId } : availableModels[0] ?? { id: '', label: 'Agent default' }),
+    () => availableModels.find((model) => model.id === selectedModelId) ?? (selectedModelId ? { id: selectedModelId, label: selectedModelId, color: 'var(--t-text-secondary)' } : availableModels[0] ?? { id: '', label: 'Agent default', color: 'var(--t-text-secondary)' }),
     [availableModels, selectedModelId],
   );
 
