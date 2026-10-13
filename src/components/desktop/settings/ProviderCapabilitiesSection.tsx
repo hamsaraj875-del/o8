@@ -17,10 +17,11 @@ export function ProviderCapabilitiesSection({ runtimeId }: { runtimeId: string }
   const caps = current?.capabilities;
   const actions = caps ? [[caps.resume, 'Follow-up messages'], [caps.interrupt, 'Stop'], [caps.streaming, 'Live output'], [caps.reviewDiffs, 'Changes']].filter(([enabled]) => enabled).map(([, label]) => label).join(', ') : '';
   const memory = caps?.sessionTransforms ? Object.entries(caps.sessionTransforms).filter(([, enabled]) => enabled).map(([action]) => action).join(', ') : '';
+  const description = (value: string, note?: string) => <><span style={{ display: 'block', color: 'var(--t-text-secondary)', overflowWrap: 'anywhere' }}>{value}</span>{note ? <span style={{ display: 'block', marginTop: 4 }}>{note}</span> : null}</>;
   return <SettingsGroup header="Adapter capabilities">
-    <SettingsRow label="Worker actions" value={!current ? 'Loading…' : actions || 'Not reported'} subtitle={current?.failed ? 'Could not read the adapter. Reopen Settings to retry.' : !caps ? 'Conversation capabilities depend on your connected agent.' : 'Supported by this adapter; account status is checked separately.'} divider />
-    <SettingsRow label="Session transforms" value={memory || 'Not exposed'} divider />
-    <SettingsRow label="Usage" value={caps?.costTelemetry ? 'Reported when available' : 'Not reported'} subtitle="Missing usage is unknown, not zero." divider />
-    <SettingsRow label="Account limits" value={caps?.capacity?.observe ? 'Provider observations supported' : 'Not reported'} subtitle="Availability and charges cannot be inferred from a model list." />
+    <SettingsRow label="Worker actions" subtitle={description(!current ? 'Loading…' : actions || 'Not reported', current?.failed ? 'Could not read the adapter. Reopen Settings to retry.' : !caps ? 'Conversation capabilities depend on your connected agent.' : 'Supported by this adapter; account status is checked separately.')} divider />
+    <SettingsRow label="Session transforms" subtitle={description(memory || 'Not exposed')} divider />
+    <SettingsRow label="Usage" subtitle={description(caps?.costTelemetry ? 'Reported when available' : 'Not reported', 'Missing usage is unknown, not zero.')} divider />
+    <SettingsRow label="Account limits" subtitle={description(caps?.capacity?.observe ? 'Provider observations supported' : 'Not reported', 'Availability and charges cannot be inferred from a model list.')} />
   </SettingsGroup>;
 }
