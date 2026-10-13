@@ -54,6 +54,9 @@ it('holds the actual unknown 409 action receipt rather than treating it as a rej
     : { ok: false, outcomeUnknown: true, status: 'unavailable' }), { status: String(url).includes('inventory') ? 200 : 409 }));
   let outcome: string | undefined; await act(async () => { outcome = await chat.sendText('unknown execution'); });
   expect(outcome).toBe('unconfirmed');
+  expect(chat.sending).toBe(true);
+  await act(async () => { expect(await chat.sendText('do not repeat')).toBe('failed'); });
+  expect(vi.mocked(fetch).mock.calls.filter(call => call[0] === '/api/runtime/action')).toHaveLength(1);
 });
 it('preserves queued mutation identity and blocks Resume after an unknown action receipt', async () => {
   let ready = false;
