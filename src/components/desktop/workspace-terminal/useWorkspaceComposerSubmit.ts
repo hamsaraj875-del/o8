@@ -23,7 +23,7 @@ export function useWorkspaceComposerSubmit(chat: ReturnType<typeof useWorkspaceC
         const refs: string[] = [];
         for (const image of images) {
           const cached = uploads.current.get(image);
-          let path = cached?.repoPath === repoPath ? cached.path : undefined;
+          let path = cached && cached.repoPath === repoPath ? cached.path : undefined;
           if (!path) {
             const response = await fetch(`/api/repo-spec/asset?repoPath=${encodeURIComponent(repoPath!)}`, {
               method: 'POST', signal: controller.signal, headers: { 'Content-Type': image.mimeType, 'x-filename': encodeURIComponent(image.name) },
