@@ -43,11 +43,11 @@ export function shouldHoldOwnedRuntimeSteer(
     && payload.reason === 'surface_not_ready';
 }
 
-export function fetchOwnedRuntimeSteerReceipt(surfaceId: string, message: string) {
+export function fetchOwnedRuntimeSteerReceipt(surfaceId: string, message: string, clientMutationId = crypto.randomUUID()) {
   const requestBody = JSON.stringify({
     action: 'steer',
     surfaceId,
-    clientMutationId: crypto.randomUUID(),
+    clientMutationId,
     message,
   });
   return fetchCorrelatedActionReceipt<OwnedRuntimeActionPayload>('/api/runtime/action', {

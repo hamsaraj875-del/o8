@@ -84,7 +84,7 @@ export function LocalAcpSection() {
     <RamsButton variant="ghost" disabled={loading || busy || checking || locked} onClick={() => setRegistryOpen(value => !value)}>Browse agents</RamsButton>
     {registryOpen ? <AcpRegistryPicker onClose={() => { setRegistryOpen(false); queueMicrotask(() => commandField.current?.focus()); }} onChoose={connection => {
       setName(connection.name); setCommand(connection.command); setArgs(connection.args.join('\n')); setUseOpenRouter(false);
-      setSaved(false); setRegistryOpen(false); setNotice('Prepared. Save this connection, then check it. Your current connection stays active until you save.');
+      setSaved(false); setRegistryOpen(false); queueMicrotask(() => commandField.current?.focus()); setNotice('Prepared. Save this connection, then check it. Your current connection stays active until you save.');
     }} /> : null}
     {locked ? <p>Controlled by O8_ACP_COMMAND in your environment.</p> : null}
     <fieldset disabled={loading || busy || checking || locked || registryOpen} style={{ border: 0, padding: 0, margin: 0, display: 'grid', gap: 12 }}>

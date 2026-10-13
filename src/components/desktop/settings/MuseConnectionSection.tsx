@@ -22,8 +22,9 @@ export function MuseConnectionSection() {
       if (!data.available) throw new Error('Install Muse Code, then check again.');
       const rows = Array.isArray(data.groups) ? data.groups.flatMap((group: { models?: unknown }) => Array.isArray(group.models) ? group.models : []) : [];
       if (!controller.signal.aborted) {
-        setModels(rows.filter((model: { id?: unknown; label?: unknown }) => typeof model.id === 'string' && typeof model.label === 'string'));
-        setNotice(rows.length ? `${rows.length} models reported. Account access is checked when work starts.` : 'No models reported. Sign in through Muse Code, then check again.');
+        const valid = rows.filter((model: { id?: unknown; label?: unknown } | null) => model && typeof model.id === 'string' && typeof model.label === 'string');
+        setModels(valid);
+        setNotice(valid.length ? `${valid.length} model${valid.length === 1 ? '' : 's'} reported. Account access is checked when work starts.` : 'No models reported. Sign in through Muse Code, then check again.');
       }
     } catch (error) {
       if (!controller.signal.aborted) setNotice(error instanceof Error ? error.message : 'Could not check Muse.');
