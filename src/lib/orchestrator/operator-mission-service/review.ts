@@ -488,6 +488,15 @@ export async function submitPacketReview(input: SubmitReviewInput) {
     contractCoverage = (await assessDurableApprovedReview(verdictLane)).contractCoverage ?? null;
   }
 
+  let workspaceReconciliation;
+  if (input.approved && input.reviewedHeadSha && reviewedHeadSha && verdictLane
+    && !activeReviewTurn && !auditReview.requiresSecondPass && resolvedAuditApprovalId) {
+    const { reconcileIndependentReviewWorkspace } = await import('./review-workspace');
+    workspaceReconciliation = await reconcileIndependentReviewWorkspace({
+      lane: verdictLane, approvalId: resolvedAuditApprovalId, reviewedHeadSha,
+    });
+  }
+
   log(`Recorded review for packet ${packet.id}${orphanLane ? ` (orphan via lane ${orphanLane.id})` : ''}.`, {
     approved: input.approved,
     findings: input.findings.length,
@@ -510,5 +519,6 @@ export async function submitPacketReview(input: SubmitReviewInput) {
     auditEventType: 'orchestrator_review',
     auditApprovalId: resolvedAuditApprovalId,
     contractCoverage,
+    ...(workspaceReconciliation ? { workspaceReconciliation } : {}),
   };
 }
