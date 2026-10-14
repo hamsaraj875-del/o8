@@ -2555,6 +2555,14 @@
       ]
     },
     {
+      "path": "tests/independent-review-workspace-real-path.test.ts",
+      "reasons": [
+        "child-process",
+        "git-cli",
+        "real-path"
+      ]
+    },
+    {
       "path": "tests/inline-packet-scope.test.ts",
       "reasons": [
         "child-process",
