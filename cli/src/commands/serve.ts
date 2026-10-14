@@ -21,6 +21,7 @@ import {
   waitForSupervisorRestart,
 } from './serve-lifecycle.js';
 import { readOrCreateServeId as readOrCreateId, acquireServeOperation, withServeOperation, withServeStateMutation, sameServeGeneration, mergeServeClaims, serveProcessClaim, stopServeProcesses, type ServeProcessClaim } from './serve-processes.js';
+import { validateReviewMode } from '../../../src/lib/lane/review-mode.js';
 import { CLI_VERSION } from './version.js';
 import { outputServeNotRunning, outputServeState, outputServeStopped } from './serve-output.js';
 
@@ -49,6 +50,7 @@ interface ServeState {
   apiPort: number;
   wsPort: number;
   mode: ServeMode;
+  reviewMode?: 'automatic' | 'manual';
   root: string;
   startedAt: string;
   status: ServeStatus;
@@ -403,6 +405,7 @@ async function waitForDaemonReady(paths: ServePaths, pid: number): Promise<Serve
 }
 
 async function startServe(mode: OutputMode): Promise<number> {
+  validateReviewMode();
   const paths = servePaths();
   mkdirSync(dirname(paths.logFile), { recursive: true });
   const child = await withServeOperation(paths.dataDir, async () => {
@@ -537,12 +540,24 @@ async function stopServe(mode: OutputMode, report = true): Promise<number> {
 }
 
 async function restartServe(mode: OutputMode): Promise<number> {
+  const requestedMode = validateReviewMode();
   const paths = servePaths();
   const state = readState(paths);
   const supervisorPid = readServeSupervisorPid(paths.stateFile);
   if (supervisorPid && processAlive(supervisorPid)) {
-    const previousPid = readOwnerPid(paths) ?? state?.pid ?? null;
-    process.kill(supervisorPid, 'SIGHUP');
+    const admitted = await withServeOperation(paths.dataDir, async () => withServeStateMutation(paths.stateFile, () => {
+      const current = readState(paths);
+      if (!state || !sameServeGeneration(state, current) || current?.supervisorPid !== supervisorPid || current.shutdownOwner) {
+        throw new CliError('serve_restart_conflict', 'Runtime ownership changed before restart admission.', EXIT.CONFLICT);
+      }
+      const reviewMode = current.reviewMode ?? 'automatic';
+      if (process.env.O8_REVIEW_MODE !== undefined && requestedMode !== reviewMode) {
+        throw new CliError('serve_review_mode_change_requires_stop', 'Stop the supervised profile before starting it with a different review mode.', EXIT.CONFLICT);
+      }
+      const previousPid = readOwnerPid(paths) ?? current.pid;
+      process.kill(supervisorPid, 'SIGHUP');
+      return { previousPid, reviewMode };
+    }));
     const restarted = await waitForSupervisorRestart({
       supervisorPid,
       timeoutMs: START_TIMEOUT_MS,
@@ -552,11 +567,14 @@ async function restartServe(mode: OutputMode): Promise<number> {
       readReadyState: async () => {
         const pid = readOwnerPid(paths);
         const current = readState(paths);
-        if (!pid || pid === previousPid || current?.pid !== pid) return null;
+        if (!pid || pid === admitted.previousPid || current?.pid !== pid) return null;
         if (current.supervisorPid !== supervisorPid || current.status !== 'ready') return null;
         return await apiIsReady(current.apiPort) && await portAcceptsConnections(current.wsPort) ? current : null;
       },
     });
+    if ((restarted.reviewMode ?? 'automatic') !== admitted.reviewMode) {
+      throw new CliError('serve_review_mode_mismatch', 'The restarted profile did not retain its admitted review mode.', EXIT.CONFLICT);
+    }
     outputServeState(mode, restarted, true, true);
     return EXIT.OK;
   }
@@ -609,6 +627,12 @@ async function runDaemon(): Promise<number> {
     WS_TOKEN: token,
     NODE_ENV: plan.mode === 'packaged' ? 'production' : 'development',
   };
+  if (validateReviewMode() === 'manual') {
+    env.O8_HEAL_BOT_ENABLED = '0';
+    env.O8_SUPERVISOR_AUTO_ESCALATE = '0';
+    env.O8_EXPLAINER = '0';
+    env.O8_BRAIN_WARMUP = '0';
+  }
   if (plan.mode === 'packaged') {
     env.O8_PACKAGED_APP = '1';
     env.NODE_COMPILE_CACHE = join(paths.dataDir, 'compile-cache');
@@ -629,6 +653,7 @@ async function runDaemon(): Promise<number> {
     apiPort,
     wsPort,
     mode: plan.mode,
+    reviewMode: validateReviewMode(),
     root: plan.root,
     startedAt,
     status: 'starting',
